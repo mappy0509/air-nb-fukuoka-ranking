@@ -69,27 +69,97 @@ document.addEventListener('DOMContentLoaded', () => {
         return { hosts, store: storeData };
     };
 
+    // 年間データを集計する関数
+    const aggregateYearlyData = (monthlyData) => {
+        const aggregatedHosts = {};
+        const aggregatedStores = {};
+
+        monthlyData.forEach(month => {
+            // ホストのデータを集計
+            month.hosts.forEach(host => {
+                if (!aggregatedHosts[host.name]) {
+                    aggregatedHosts[host.name] = { ...host, sales: 0, nominations: 0 };
+                }
+                aggregatedHosts[host.name].sales += host.sales;
+                aggregatedHosts[host.name].nominations += host.nominations;
+            });
+            // 店舗のデータを集計
+            month.stores.forEach(store => {
+                if (!aggregatedStores[store.name]) {
+                    aggregatedStores[store.name] = { ...store, sales: 0, nominations: 0 };
+                }
+                aggregatedStores[store.name].sales += store.sales;
+                aggregatedStores[store.name].nominations += store.nominations;
+            });
+        });
+
+        return {
+            hosts: Object.values(aggregatedHosts),
+            stores: Object.values(aggregatedStores)
+        };
+    };
+    
     const loadDataForPeriod = async (period) => {
         if (cachedData.hosts[period]) return; // キャッシュがあれば何もしない
-
+    
         rankingList.innerHTML = `<p class="text-center text-gray-400">データを読み込み中...</p>`;
-        
+    
         try {
-            const [pureRes, chanceRes] = await Promise.all([
-                fetch(`${SCRIPT_URLS.pure}?sheet=${period}`),
-                fetch(`${SCRIPT_URLS.chance}?sheet=${period}`)
-            ]);
-
-            const [pureCsv, chanceCsv] = await Promise.all([pureRes.text(), chanceRes.text()]);
-
-            const pureData = parseSheetCsv(pureCsv);
-            const chanceData = parseSheetCsv(chanceCsv);
-
-            cachedData.hosts[period] = [...pureData.hosts, ...chanceData.hosts];
-            cachedData.stores[period] = [pureData.store, chanceData.store].filter(Boolean);
+            if (period === 'yearly') {
+                const monthlyPromises = [];
+                for (let month = 1; month <= 12; month++) {
+                    monthlyPromises.push(loadDataForPeriod(month));
+                }
+                await Promise.all(monthlyPromises); // 全ての月のデータ読み込みを待つ
+    
+                const allMonthlyData = { hosts: [], stores: [] };
+                for (let month = 1; month <= 12; month++) {
+                    if (cachedData.hosts[month]) {
+                        allMonthlyData.hosts.push(...cachedData.hosts[month]);
+                    }
+                    if (cachedData.stores[month]) {
+                        allMonthlyData.stores.push(...cachedData.stores[month]);
+                    }
+                }
+    
+                const yearlyHosts = {};
+                allMonthlyData.hosts.forEach(host => {
+                    if (!yearlyHosts[host.name]) {
+                        yearlyHosts[host.name] = { ...host, sales: 0, nominations: 0 };
+                    }
+                    yearlyHosts[host.name].sales += host.sales;
+                    yearlyHosts[host.name].nominations += host.nominations;
+                });
+    
+                const yearlyStores = {};
+                allMonthlyData.stores.forEach(store => {
+                    if (!yearlyStores[store.name]) {
+                        yearlyStores[store.name] = { ...store, sales: 0, nominations: 0 };
+                    }
+                    yearlyStores[store.name].sales += store.sales;
+                    yearlyStores[store.name].nominations += store.nominations;
+                });
+    
+                cachedData.hosts['yearly'] = Object.values(yearlyHosts);
+                cachedData.stores['yearly'] = Object.values(yearlyStores);
+    
+            } else {
+                const [pureRes, chanceRes] = await Promise.all([
+                    fetch(`${SCRIPT_URLS.pure}?sheet=${period}`),
+                    fetch(`${SCRIPT_URLS.chance}?sheet=${period}`)
+                ]);
+    
+                const [pureCsv, chanceCsv] = await Promise.all([pureRes.text(), chanceRes.text()]);
+    
+                const pureData = parseSheetCsv(pureCsv);
+                const chanceData = parseSheetCsv(chanceCsv);
+    
+                cachedData.hosts[period] = [...pureData.hosts, ...chanceData.hosts];
+                cachedData.stores[period] = [pureData.store, chanceData.store].filter(Boolean);
+            }
         } catch (error) {
             console.error(`'${period}'のデータ取得エラー:`, error);
-            cachedData.hosts[period] = []; // エラー時も空配列をセット
+            cachedData.hosts[period] = [];
             cachedData.stores[period] = [];
             rankingList.innerHTML = `<p class="text-center text-red-400">データの読み込みに失敗しました。</p>`;
         }
@@ -204,4 +274,3 @@ document.addEventListener('DOMContentLoaded', () => {
 
     initialize();
 });
-
